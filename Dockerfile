@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN pip install --no-cache-dir shiny pandas scikit-learn matplotlib shap joblib
+RUN pip install --no-cache-dir shiny pandas scikit-learn==1.6.1 matplotlib shap joblib
 
 EXPOSE 7860
 
