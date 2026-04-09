@@ -1,2 +1,9 @@
-# churnguard-data622
-DATA 622 final project - bank churn prediction app
+---
+title: ChurnGuard App
+emoji: 📊
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_file: app/app.py
+pinned: false
+---
