@@ -6,7 +6,7 @@ import shap
 import matplotlib.pyplot as plt
 
 # load model safely
-model_path = os.path.join(os.path.dirname(__file__), "../models/logistic_model.pkl")
+model_path = "models/logistic_model.pkl"
 model = joblib.load(model_path)
 
 app_ui = ui.page_fluid(
