@@ -1,124 +1,133 @@
 from shiny import App, ui, render
 import pandas as pd
-import joblib
 import os
-import shap
 import matplotlib.pyplot as plt
 
-# load model safely
-model_path = "models/logistic_model.pkl"
-model = joblib.load(model_path)
+from services.predict import predict_churn, explain_customer
 
+
+# ----------------------------
+# LOAD DATA
+# ----------------------------
+def load_data(file):
+    if file is not None:
+        return pd.read_csv(file[0]["datapath"])
+    else:
+        sample_path = os.path.join(
+            os.path.dirname(__file__),
+            "../data/sample.csv"
+        )
+        return pd.read_csv(sample_path)
+
+
+# ----------------------------
+# UI
+# ----------------------------
 app_ui = ui.page_fluid(
-    ui.h2("Churn Prediction App"),
-    
+
+    ui.h2("ChurnGuard - Customer Churn Prediction Dashboard"),
+
+    ui.p("Upload CSV or use sample dataset."),
+
     ui.input_file("file", "Upload CSV File"),
-    
+
     ui.output_text("status"),
-    
+
     ui.h4("Data Preview"),
     ui.output_table("preview"),
-    
+
     ui.h4("Top High-Risk Customers"),
     ui.output_table("predictions"),
 
     ui.h4("Risk Distribution"),
     ui.output_plot("risk_distribution"),
 
-    ui.h4("Feature Importance (Why customers churn)"),
-    ui.output_plot("feature_importance")
+    ui.h4("Customer Explanation"),
+    ui.output_table("feature_importance")
 )
 
+
+# ----------------------------
+# SERVER
+# ----------------------------
 def server(input, output, session):
-    
+
+    # ----------------------------
+    # STATUS
+    # ----------------------------
     @output
     @render.text
     def status():
         if input.file() is None:
-            return "Please upload a CSV file."
-        return "File uploaded successfully."
+            return "Using sample dataset."
+        return "Custom file loaded."
 
+    # ----------------------------
+    # PREVIEW
+    # ----------------------------
     @output
     @render.table
     def preview():
-        file = input.file()
-        if file is None:
-            return
-        
-        df = pd.read_csv(file[0]["datapath"])
-        return df.head()
+        try:
+            df = load_data(input.file())
+            return df.head()
+        except Exception as e:
+            return pd.DataFrame({"Error": [str(e)]})
 
+    # ----------------------------
+    # PREDICTIONS (NO TRANSFORMATION)
+    # ----------------------------
     @output
     @render.table
     def predictions():
-        file = input.file()
-        if file is None:
-            return
-        
-        df = pd.read_csv(file[0]["datapath"])
-
         try:
+            df = load_data(input.file())
+
+            # ONLY REMOVE TARGET COLUMN
             X = df.drop(columns=["churn"]) if "churn" in df.columns else df.copy()
 
-            # probabilities
-            proba = model.predict_proba(X)[:, 1]
+            results = predict_churn(X)
 
-            # formatted risk score
-            df["risk_score"] = (proba * 100).round(2).astype(str) + "%"
+            df["risk_score"] = (results["probability"] * 100).round(2).astype(str) + "%"
+            df["predicted_churn"] = results["predicted_class"]
+            df["risk_tier"] = results["risk_tier"]
+            df["recommendation"] = results["recommendation"]
 
-            # numeric for sorting
-            df["_risk_score_numeric"] = proba
+            df["_risk"] = results["probability"]
+            df = df.sort_values("_risk", ascending=False)
 
-            # predicted churn
-            df["predicted_churn"] = (proba >= 0.5).astype(int)
-
-            # risk tier
-            def risk_tier(p):
-                if p >= 0.7:
-                    return "High"
-                elif p >= 0.4:
-                    return "Medium"
-                else:
-                    return "Low"
-
-            df["risk_tier"] = df["_risk_score_numeric"].apply(risk_tier)
-
-            # sorting highest risk first
-            df = df.sort_values(by="_risk_score_numeric", ascending=False)
-
-            # columns to display
-            cols_to_show = [
+            cols = [
                 "customer_id",
                 "risk_score",
                 "risk_tier",
                 "predicted_churn",
-                "churn"
+                "recommendation"
             ]
-            cols_to_show = [c for c in cols_to_show if c in df.columns]
 
-            return df[cols_to_show].head(15)
+            cols = [c for c in cols if c in df.columns]
+
+            return df[cols].head(15)
 
         except Exception as e:
             return pd.DataFrame({"Error": [str(e)]})
 
-    # Risk Distribution
+    # ----------------------------
+    # RISK DISTRIBUTION
+    # ----------------------------
     @output
     @render.plot
     def risk_distribution():
-        file = input.file()
-        if file is None:
-            return
-        
-        df = pd.read_csv(file[0]["datapath"])
-        X = df.drop(columns=["churn"]) if "churn" in df.columns else df.copy()
-
         try:
-            proba = model.predict_proba(X)[:, 1]
+            df = load_data(input.file())
+
+            X = df.drop(columns=["churn"]) if "churn" in df.columns else df.copy()
+
+            results = predict_churn(X)
 
             plt.figure()
-            plt.hist(proba, bins=10)
+            plt.hist(results["probability"].dropna(), bins=10)
             plt.xlabel("Churn Probability")
-            plt.ylabel("Number of Customers")
+            plt.ylabel("Customers")
             plt.title("Risk Distribution")
 
             return plt.gcf()
@@ -128,49 +137,26 @@ def server(input, output, session):
             plt.text(0.1, 0.5, str(e))
             return plt.gcf()
 
-    # SHAP Feature 
+    # ----------------------------
+    # EXPLANATION
+    # ----------------------------
     @output
-    @render.plot
+    @render.table
     def feature_importance():
-        file = input.file()
-        if file is None:
-            return
-        
-        df = pd.read_csv(file[0]["datapath"])
-        X = df.drop(columns=["churn"]) if "churn" in df.columns else df.copy()
-
         try:
-            # sample for performance
-            X_sample = X.sample(min(100, len(X)), random_state=42)
+            df = load_data(input.file())
 
-            # extract pipeline parts
-            preprocessor = model.named_steps["preprocessor"]
-            classifier = model.named_steps["classifier"]
+            X = df.drop(columns=["churn"]) if "churn" in df.columns else df.copy()
 
-            # transform data (make numeric)
-            X_transformed = preprocessor.transform(X_sample)
+            customer = X.iloc[[0]]
 
-            # feature names
-            feature_names = preprocessor.get_feature_names_out()
-
-            # SHAP for linear model
-            explainer = shap.LinearExplainer(classifier, X_transformed)
-            shap_values = explainer(X_transformed)
-
-            # plot
-            plt.figure()
-            shap.summary_plot(
-                shap_values,
-                X_transformed,
-                feature_names=feature_names,
-                show=False
-            )
-
-            return plt.gcf()
+            return explain_customer(customer)
 
         except Exception as e:
-            plt.figure()
-            plt.text(0.1, 0.5, "SHAP Error:\n" + str(e))
-            return plt.gcf()
+            return pd.DataFrame({"Error": [str(e)]})
 
+
+# ----------------------------
+# RUN APP
+# ----------------------------
 app = App(app_ui, server)
