@@ -3,7 +3,4 @@ pandas
 numpy
 matplotlib
 scikit-learn
-xgboost==1.7.6
-pip
-setuptools
-wheel
+joblib
