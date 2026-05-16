@@ -1,7 +1,6 @@
 shiny
 pandas
-scikit-learn==1.6.1
+numpy
 matplotlib
-shap
-joblib
-jinja2
+scikit-learn
+xgboost==2.0.3
