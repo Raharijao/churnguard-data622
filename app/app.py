@@ -1,29 +1,32 @@
-from shiny import App, ui, render
-import pandas as pd
-import os
-import matplotlib.pyplot as plt
 import sys
-import numpy as np
+import os
 
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-
-# ----------------------------
-# HF SAFE IMPORT PATH
-# ----------------------------
 sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            ".."
+        )
+    )
 )
 
-from services.predict import predict_churn, explain_customer
+from shiny import App, ui, render
+import pandas as pd
+import matplotlib.pyplot as plt
 
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    confusion_matrix,
+    ConfusionMatrixDisplay
+)
 
-# ----------------------------
-# SAFE TYPE CONVERTER (FIXES YOUR ERROR)
-# ----------------------------
-def safe(v):
-    if isinstance(v, (np.integer, np.floating)):
-        return str(v.item())
-    return str(v)
+from services.predict import (
+    predict_churn,
+    explain_customer
+)
 
 
 # ----------------------------
@@ -43,17 +46,37 @@ def load_data(file):
 
 
 # ----------------------------
-# BUSINESS INSIGHTS ENGINE
+# KPI CARD
 # ----------------------------
-def generate_insight(row):
-    if row["risk_tier"] == "High" and row["probability"] > 0.7:
-        return "High churn risk driven by strong disengagement signals. Immediate retention action required."
-    elif row["risk_tier"] == "High":
-        return "High risk customer showing churn tendencies."
-    elif row["risk_tier"] == "Medium":
-        return "Moderate churn risk. Monitor and engage."
-    else:
-        return "Low churn risk. Stable customer."
+def create_kpi_card(title, value):
+
+    return ui.card(
+        ui.card_header(title),
+        ui.h2(str(value))
+    )
+
+
+# ----------------------------
+# BUSINESS NARRATIVE
+# ----------------------------
+def generate_customer_narrative(customer, explanation):
+
+    drivers = [
+        explanation["top_driver_1"].iloc[0],
+        explanation["top_driver_2"].iloc[0],
+        explanation["top_driver_3"].iloc[0]
+    ]
+
+    risk = explanation["risk_tier"].iloc[0]
+
+    narrative = (
+        f"This customer is classified as {risk} churn risk. "
+        f"The primary churn drivers are {drivers[0]}, "
+        f"{drivers[1]}, and {drivers[2]}. "
+        f"Recommended action: proactive retention engagement."
+    )
+
+    return narrative
 
 
 # ----------------------------
@@ -61,36 +84,107 @@ def generate_insight(row):
 # ----------------------------
 app_ui = ui.page_fluid(
 
-    ui.h2("ChurnGuard - Customer Intelligence Dashboard"),
-
-    ui.input_file("file", "Upload CSV File"),
-    ui.output_text("status"),
-
-    # ---------------- KPI CARDS ----------------
-    ui.row(
-        ui.column(3, ui.output_ui("kpi_total")),
-        ui.column(3, ui.output_ui("kpi_high_risk")),
-        ui.column(3, ui.output_ui("kpi_avg_risk")),
-        ui.column(3, ui.output_ui("kpi_churn_rate")),
+    ui.h2(
+        "ChurnGuard - Customer Churn Prediction Dashboard"
     ),
 
+    ui.p(
+        "AI-powered customer churn prediction and retention analytics."
+    ),
+
+    ui.input_file(
+        "file",
+        "Upload CSV File"
+    ),
+
+    ui.output_text("status"),
+
+    ui.hr(),
+
+    # KPI CARDS
+    ui.row(
+
+        ui.column(
+            3,
+            ui.output_ui("kpi_total")
+        ),
+
+        ui.column(
+            3,
+            ui.output_ui("kpi_high_risk")
+        ),
+
+        ui.column(
+            3,
+            ui.output_ui("kpi_avg_risk")
+        ),
+
+        ui.column(
+            3,
+            ui.output_ui("kpi_churn_rate")
+        )
+    ),
+
+    ui.hr(),
+
+    # DATA PREVIEW
     ui.h4("Data Preview"),
+
     ui.output_table("preview"),
 
+    ui.hr(),
+
+    # PREDICTIONS
     ui.h4("Top High-Risk Customers"),
+
     ui.output_table("predictions"),
 
-    ui.download_button("download_preds", "Download Predictions"),
+    ui.download_button(
+        "download_preds",
+        "Download Predictions"
+    ),
 
+    ui.hr(),
+
+    # METRICS
+    ui.h4("Model Evaluation Metrics"),
+
+    ui.output_table("metrics_table"),
+
+    ui.hr(),
+
+    # CONFUSION MATRIX
+    ui.h4("Confusion Matrix"),
+
+    ui.output_plot("confusion_matrix_plot"),
+
+    ui.hr(),
+
+    # RISK DISTRIBUTION
     ui.h4("Risk Distribution"),
+
     ui.output_plot("risk_distribution"),
 
-    ui.h4("Confusion Matrix (Model Performance)"),
-    ui.output_plot("conf_matrix"),
+    ui.hr(),
 
+    # CUSTOMER EXPLANATION
     ui.h4("Customer Explanation"),
-    ui.input_numeric("customer_row", "Customer Row", value=0, min=0),
-    ui.output_table("feature_importance")
+
+    ui.input_numeric(
+        "customer_row",
+        "Customer Row",
+        value=0,
+        min=0
+    ),
+
+    ui.output_table("feature_importance"),
+
+    ui.hr(),
+
+    # BUSINESS INSIGHTS
+    ui.h4("AI Business Narrative"),
+
+    ui.output_text_verbatim("customer_narrative")
 )
 
 
@@ -99,144 +193,432 @@ app_ui = ui.page_fluid(
 # ----------------------------
 def server(input, output, session):
 
-    # ---------------- STATUS ----------------
+    # STATUS
     @output
     @render.text
     def status():
-        return "Custom file loaded." if input.file() else "Using sample dataset."
 
-    # ---------------- DATA HELPERS ----------------
-    def get_data():
-        return load_data(input.file())
+        if input.file() is None:
+            return "Using sample dataset."
 
-    def get_X():
-        df = get_data()
-        return df.drop(columns=["churn"]) if "churn" in df.columns else df
+        return "Custom dataset loaded."
 
-    def get_preds():
-        return predict_churn(get_X())
 
-    # ---------------- KPI: TOTAL ----------------
+    # KPI TOTAL
     @output
     @render.ui
     def kpi_total():
-        return ui.card(
-            ui.h5("Total Customers"),
-            ui.h2(safe(len(get_data())))
+
+        df = load_data(input.file())
+
+        return create_kpi_card(
+            "Total Customers",
+            str(len(df))
         )
 
-    # ---------------- KPI: HIGH RISK ----------------
+
+    # KPI HIGH RISK
     @output
     @render.ui
     def kpi_high_risk():
-        count = (get_preds()["risk_tier"] == "High").sum()
-        return ui.card(
-            ui.h5("High Risk Customers"),
-            ui.h2(safe(count))
+
+        df = load_data(input.file())
+
+        X = (
+            df.drop(columns=["churn"])
+            if "churn" in df.columns
+            else df.copy()
         )
 
-    # ---------------- KPI: AVG RISK ----------------
+        results = predict_churn(X)
+
+        high_risk = int(
+            (results["risk_tier"] == "High").sum()
+        )
+
+        return create_kpi_card(
+            "High Risk Customers",
+            str(high_risk)
+        )
+
+
+    # KPI AVG RISK
     @output
     @render.ui
     def kpi_avg_risk():
-        avg = get_preds()["probability"].mean() * 100
-        return ui.card(
-            ui.h5("Avg Risk Score"),
-            ui.h2(safe(round(avg, 2)) + "%")
+
+        df = load_data(input.file())
+
+        X = (
+            df.drop(columns=["churn"])
+            if "churn" in df.columns
+            else df.copy()
         )
 
-    # ---------------- KPI: CHURN RATE ----------------
+        results = predict_churn(X)
+
+        avg_risk = round(
+            float(results["probability"].mean()) * 100,
+            2
+        )
+
+        return create_kpi_card(
+            "Average Risk Score",
+            f"{avg_risk}%"
+        )
+
+
+    # KPI CHURN RATE
     @output
     @render.ui
     def kpi_churn_rate():
-        churn = get_preds()["predicted_class"].mean() * 100
-        return ui.card(
-            ui.h5("Predicted Churn Rate"),
-            ui.h2(safe(round(churn, 2)) + "%")
+
+        df = load_data(input.file())
+
+        X = (
+            df.drop(columns=["churn"])
+            if "churn" in df.columns
+            else df.copy()
         )
 
-    # ---------------- PREVIEW ----------------
+        results = predict_churn(X)
+
+        churn_rate = round(
+            float(results["predicted_class"].mean()) * 100,
+            2
+        )
+
+        return create_kpi_card(
+            "Predicted Churn Rate",
+            f"{churn_rate}%"
+        )
+
+
+    # DATA PREVIEW
     @output
     @render.table
     def preview():
-        return get_data().head()
 
-    # ---------------- PREDICTIONS ----------------
+        try:
+            df = load_data(input.file())
+            return df.head()
+
+        except Exception as e:
+            return pd.DataFrame({
+                "Error": [str(e)]
+            })
+
+
+    # PREDICTIONS
     @output
     @render.table
     def predictions():
 
-        df = get_data().copy()
-        preds = get_preds()
+        try:
 
-        df["risk_score"] = (preds["probability"] * 100).round(2)
-        df["risk_tier"] = preds["risk_tier"]
-        df["recommendation"] = preds["recommendation"]
-        df["insight"] = preds.apply(generate_insight, axis=1)
+            df = load_data(input.file())
 
-        df["_risk"] = preds["probability"]
-        df = df.sort_values("_risk", ascending=False)
+            X = (
+                df.drop(columns=["churn"])
+                if "churn" in df.columns
+                else df.copy()
+            )
 
-        return df.head(15)
+            results = predict_churn(X)
 
-    # ---------------- DOWNLOAD ----------------
-    @render.download(filename="churn_predictions.csv")
+            df["risk_score"] = (
+                results["probability"] * 100
+            ).round(2).astype(str) + "%"
+
+            df["predicted_churn"] = (
+                results["predicted_class"]
+            )
+
+            df["risk_tier"] = (
+                results["risk_tier"]
+            )
+
+            df["recommendation"] = (
+                results["recommendation"]
+            )
+
+            df["_risk"] = (
+                results["probability"]
+            )
+
+            df = df.sort_values(
+                "_risk",
+                ascending=False
+            )
+
+            cols = [
+                "risk_score",
+                "risk_tier",
+                "predicted_churn",
+                "recommendation"
+            ]
+
+            return df[cols].head(15)
+
+        except Exception as e:
+
+            return pd.DataFrame({
+                "Error": [str(e)]
+            })
+
+
+    # DOWNLOAD
+    @render.download(
+        filename="churn_predictions.csv"
+    )
     def download_preds():
 
-        df = get_data().copy()
-        preds = get_preds()
+        df = load_data(input.file())
 
-        df["risk_score"] = (preds["probability"] * 100).round(2)
-        df["risk_tier"] = preds["risk_tier"]
-        df["recommendation"] = preds["recommendation"]
+        X = (
+            df.drop(columns=["churn"])
+            if "churn" in df.columns
+            else df.copy()
+        )
 
-        yield df.to_csv(index=False)
+        results = predict_churn(X)
 
-    # ---------------- RISK DISTRIBUTION ----------------
+        export_df = df.copy()
+
+        export_df["risk_score"] = (
+            results["probability"] * 100
+        ).round(2)
+
+        export_df["risk_tier"] = (
+            results["risk_tier"]
+        )
+
+        export_df["recommendation"] = (
+            results["recommendation"]
+        )
+
+        yield export_df.to_csv(index=False)
+
+
+    # METRICS
     @output
-    @render.plot
-    def risk_distribution():
+    @render.table
+    def metrics_table():
 
-        preds = get_preds()
-
-        plt.figure()
-        plt.hist(preds["probability"], bins=10)
-        plt.title("Risk Distribution")
-        return plt.gcf()
-
-    # ---------------- CONFUSION MATRIX ----------------
-    @output
-    @render.plot
-    def conf_matrix():
-
-        df = get_data()
+        df = load_data(input.file())
 
         if "churn" not in df.columns:
+
+            return pd.DataFrame({
+                "Message": [
+                    "No actual churn column found."
+                ]
+            })
+
+        X = df.drop(columns=["churn"])
+        y_true = df["churn"]
+
+        results = predict_churn(X)
+
+        y_pred = results["predicted_class"]
+        y_prob = results["probability"]
+
+        metrics = pd.DataFrame({
+
+            "Metric": [
+                "Accuracy",
+                "Precision",
+                "Recall",
+                "ROC-AUC"
+            ],
+
+            "Value": [
+
+                round(
+                    accuracy_score(
+                        y_true,
+                        y_pred
+                    ),
+                    3
+                ),
+
+                round(
+                    precision_score(
+                        y_true,
+                        y_pred
+                    ),
+                    3
+                ),
+
+                round(
+                    recall_score(
+                        y_true,
+                        y_pred
+                    ),
+                    3
+                ),
+
+                round(
+                    roc_auc_score(
+                        y_true,
+                        y_prob
+                    ),
+                    3
+                )
+            ]
+        })
+
+        return metrics
+
+
+    # CONFUSION MATRIX
+    @output
+    @render.plot
+    def confusion_matrix_plot():
+
+        df = load_data(input.file())
+
+        if "churn" not in df.columns:
+
             plt.figure()
-            plt.text(0.2, 0.5, "No ground truth available")
+            plt.text(
+                0.2,
+                0.5,
+                "No churn column found."
+            )
             return plt.gcf()
 
-        preds = get_preds()
+        X = df.drop(columns=["churn"])
+        y_true = df["churn"]
 
-        cm = confusion_matrix(df["churn"], preds["predicted_class"])
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        results = predict_churn(X)
+
+        y_pred = results["predicted_class"]
+
+        cm = confusion_matrix(
+            y_true,
+            y_pred
+        )
 
         fig, ax = plt.subplots()
+
+        disp = ConfusionMatrixDisplay(
+            confusion_matrix=cm
+        )
+
         disp.plot(ax=ax)
 
         return fig
 
-    # ---------------- EXPLANATION ----------------
+
+    # RISK DISTRIBUTION
+    @output
+    @render.plot
+    def risk_distribution():
+
+        df = load_data(input.file())
+
+        X = (
+            df.drop(columns=["churn"])
+            if "churn" in df.columns
+            else df.copy()
+        )
+
+        results = predict_churn(X)
+
+        plt.figure()
+
+        plt.hist(
+            results["probability"],
+            bins=10
+        )
+
+        plt.xlabel(
+            "Churn Probability"
+        )
+
+        plt.ylabel(
+            "Customers"
+        )
+
+        plt.title(
+            "Risk Distribution"
+        )
+
+        return plt.gcf()
+
+
+    # EXPLANATION
     @output
     @render.table
     def feature_importance():
 
-        df = get_data()
-        X = df.drop(columns=["churn"]) if "churn" in df.columns else df
+        try:
 
-        customer = X.iloc[[input.customer_row()]]
+            df = load_data(input.file())
 
-        return explain_customer(customer)
+            X = (
+                df.drop(columns=["churn"])
+                if "churn" in df.columns
+                else df.copy()
+            )
+
+            row_num = int(
+                input.customer_row()
+            )
+
+            if row_num >= len(X):
+
+                return pd.DataFrame({
+                    "Error": [
+                        "Customer row out of range."
+                    ]
+                })
+
+            customer = X.iloc[[row_num]]
+
+            return explain_customer(customer)
+
+        except Exception as e:
+
+            return pd.DataFrame({
+                "Error": [str(e)]
+            })
+
+
+    # BUSINESS NARRATIVE
+    @output
+    @render.text
+    def customer_narrative():
+
+        try:
+
+            df = load_data(input.file())
+
+            X = (
+                df.drop(columns=["churn"])
+                if "churn" in df.columns
+                else df.copy()
+            )
+
+            row_num = int(
+                input.customer_row()
+            )
+
+            customer = X.iloc[[row_num]]
+
+            explanation = explain_customer(
+                customer
+            )
+
+            return generate_customer_narrative(
+                customer,
+                explanation
+            )
+
+        except Exception as e:
+
+            return str(e)
 
 
 # ----------------------------
