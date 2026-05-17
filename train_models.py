@@ -8,25 +8,24 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-
 from xgboost import XGBClassifier
 
-# Load data
+# Load dataset
 df = pd.read_csv("data/Bank Customer Churn Prediction.csv")
 
 print("Data loaded:", df.shape)
 
-# Features and target
+# Target
 target = "churn"
 
 X = df.drop(columns=[target])
 y = df[target]
 
-# Column types
+# Feature types
 categorical_features = X.select_dtypes(include=["object"]).columns
 numeric_features = X.select_dtypes(exclude=["object"]).columns
 
-# Preprocessing
+# Pipelines
 numeric_transformer = Pipeline(
     steps=[
         ("imputer", SimpleImputer(strategy="median")),
@@ -56,7 +55,7 @@ X_train, X_test, y_train, y_test = train_test_split(
     random_state=42
 )
 
-# Logistic model pipeline
+# Logistic Regression
 logistic_pipeline = Pipeline(
     steps=[
         ("preprocessor", preprocessor),
@@ -64,17 +63,11 @@ logistic_pipeline = Pipeline(
     ]
 )
 
-# XGBoost pipeline
+# XGBoost
 xgb_pipeline = Pipeline(
     steps=[
         ("preprocessor", preprocessor),
-        (
-            "classifier",
-            XGBClassifier(
-                eval_metric="logloss",
-                random_state=42
-            )
-        )
+        ("classifier", XGBClassifier(eval_metric="logloss"))
     ]
 )
 
@@ -85,7 +78,7 @@ logistic_pipeline.fit(X_train, y_train)
 print("Training XGBoost...")
 xgb_pipeline.fit(X_train, y_train)
 
-# Save
+# Save models
 os.makedirs("models", exist_ok=True)
 
 joblib.dump(
