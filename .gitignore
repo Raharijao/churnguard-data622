@@ -138,6 +138,3 @@ __marimo__/
 
 # Ignore trained ML models 
 models/
-*.pkl
-models/
-*.pkl
