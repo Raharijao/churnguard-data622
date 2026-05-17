@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir \
     scikit-learn==1.6.1 \
     joblib \
     shap \
+    xgboost \
     jinja2
 
 EXPOSE 7860
