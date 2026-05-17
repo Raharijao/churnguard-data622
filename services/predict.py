@@ -18,9 +18,13 @@ xgb_model = joblib.load(XGB_MODEL_PATH)
 
 
 # ----------------------------
-# PREDICT CHURN (DataFrame in, DataFrame out)
+# PREDICT CHURN
 # ----------------------------
 def predict_churn(input_df: pd.DataFrame) -> pd.DataFrame:
+
+    # Ensure it's a clean 2D DataFrame
+    if not isinstance(input_df, pd.DataFrame):
+        input_df = pd.DataFrame(input_df)
 
     probabilities = model.predict_proba(input_df)[:, 1]
     predicted_classes = model.predict(input_df)
@@ -39,18 +43,16 @@ def predict_churn(input_df: pd.DataFrame) -> pd.DataFrame:
             return "Monitor closely"
         return "No action needed"
 
-    results = pd.DataFrame({
+    return pd.DataFrame({
         "probability": probabilities,
         "predicted_class": predicted_classes,
         "risk_tier": [get_tier(p) for p in probabilities],
         "recommendation": [get_recommendation(p) for p in probabilities],
     })
 
-    return results
-
 
 # ----------------------------
-# EXPLAIN CUSTOMER (single-row DataFrame in, DataFrame out)
+# EXPLAIN CUSTOMER
 # ----------------------------
 def explain_customer(customer_df: pd.DataFrame) -> pd.DataFrame:
 
@@ -60,14 +62,11 @@ def explain_customer(customer_df: pd.DataFrame) -> pd.DataFrame:
         shap_values = explainer(customer_df)
         vals = shap_values.values[0]
     except Exception:
-        # Fallback: use raw feature importances
         vals = xgb_model.feature_importances_
 
     feature_names = customer_df.columns.tolist()
 
-    explanation = pd.DataFrame({
+    return pd.DataFrame({
         "Feature": feature_names,
         "Impact": vals
     }).sort_values("Impact", key=abs, ascending=False)
-
-    return explanation
