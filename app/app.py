@@ -230,7 +230,7 @@ def server(input, output, session):
             else df.copy()
         )
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         high_risk = int(
             (results["risk_tier"] == "High").sum()
@@ -255,7 +255,7 @@ def server(input, output, session):
             else df.copy()
         )
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         avg_risk = round(
             float(results["probability"].mean()) * 100,
@@ -281,7 +281,7 @@ def server(input, output, session):
             else df.copy()
         )
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         churn_rate = round(
             float(results["predicted_class"].mean()) * 100,
@@ -324,7 +324,7 @@ def server(input, output, session):
                 else df.copy()
             )
 
-            results = predict_churn(X)
+            predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
             df["risk_score"] = (
                 results["probability"] * 100
@@ -381,7 +381,7 @@ def server(input, output, session):
             else df.copy()
         )
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         export_df = df.copy()
 
@@ -418,7 +418,7 @@ def server(input, output, session):
         X = df.drop(columns=["churn"])
         y_true = df["churn"]
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         y_pred = results["predicted_class"]
         y_prob = results["probability"]
@@ -491,7 +491,7 @@ def server(input, output, session):
         X = df.drop(columns=["churn"])
         y_true = df["churn"]
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         y_pred = results["predicted_class"]
 
@@ -524,7 +524,7 @@ def server(input, output, session):
             else df.copy()
         )
 
-        results = predict_churn(X)
+        predictions = X.apply(lambda row: predict_churn(row.to_dict())["prediction"], axis=1)
 
         plt.figure()
 
